@@ -1,0 +1,52 @@
+---
+
+- name: Save running config to file (asa)
+  hosts: asa
+  gather_facts: no
+  connection: network_cli
+  become_method: enable
+  become: yes
+
+  vars:
+    creds:
+        host: "{{ host }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        authorize: yes
+        #auth_pass: Jan@2019
+
+  tasks:
+    - asa_command:
+        provider: "{{ creds }}"
+        commands: show route
+      register: show_run
+    - command: date +%Y%m%d
+      register: timestamp
+    - copy:
+        content: "{{ show_run.stdout[0]}}"
+        dest: "{{ inventory_hostname}}_{{ timestamp.stdout }}.txt"
+    - name: Parse the content
+      shell: tail -n +10 "{{ inventory_hostname}}_{{ timestamp.stdout }}.txt" | awk 'NF{NF-=1};1' > "{{ inventory_hostname}}_comp.txt"
+      args:
+        executable: /bin/bash
+    - name: Get cksum of my First file
+      stat:
+        path : "{{ inventory_hostname}}_base.txt"
+      register: myfirstfile
+
+    - name: Current SHA1
+      set_fact:
+        mf1sha1: "{{ myfirstfile.stat.checksum }}"
+
+    - name: Get cksum of my Second File (If needed you can jump this)
+      stat:
+        path : "{{ inventory_hostname}}_comp.txt"
+      register: mysecondfile
+
+    - name: Current SHA1
+      set_fact:
+        mf2sha1: "{{ mysecondfile.stat.checksum }}"
+
+    - name: Compilation Changed
+      shell: diff "{{ inventory_hostname}}_comp.txt" "{{ inventory_hostname}}_base.txt" > "{{ inventory_hostname}}_difference.txt" | mailx -s "BGP routes" dc00418698@techmahindra.com
+      when:  mf2sha1 != mf1sha1
